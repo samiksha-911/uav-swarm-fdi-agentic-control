@@ -1,0 +1,40 @@
+# Python virtual environments & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+fdi_env/
+.venv/
+venv/
+env/
+
+# System and IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Large raw training datasets & telemetry dumps (>250 CSV files)
+fdi_train*.csv
+fdi_test*.csv
+fdi_training_windows.csv
+step_auto_*.csv
+step[0-9]*_*.csv
+flight_telemetry_log.csv
+baseline_*.csv
+clean_baseline_*.csv
+improved_fdi_*.csv
+variable_features.csv
+*.csv.tmp
+*.log
+*.sqlite3
+
+# Temporary & backup files
+*.bak*
+*.bak
+
+# Build & egg-info
+build/
+dist/
+*.egg-info/

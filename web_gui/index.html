@@ -1,0 +1,1754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAV Swarm — Autonomous 3D Mission Control Center</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Three.js & OrbitControls for Real-time 3D Swarm Theater -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --accent-blue: #38bdf8;
+      --accent-gold: #facc15;
+      --accent-green: #22c55e;
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top Navigation Bar */
+    header {
+      background: #090d16;
+      border-bottom: 1px solid var(--card-border);
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-size: 1.25rem; font-weight: 700; color: var(--text-main); }
+    .brand i { color: var(--accent-blue); font-size: 1.4rem; }
+    .top-stats { display: flex; gap: 14px; align-items: center; }
+    .stat-badge {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid var(--card-border);
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .badge-nominal { color: var(--accent-green); border-color: rgba(34, 197, 94, 0.4); }
+    .badge-degraded { color: var(--accent-red); border-color: rgba(239, 68, 68, 0.4); animation: pulseRed 2s infinite; }
+    @keyframes pulseRed {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.5); }
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: grid;
+      grid-template-columns: 320px 1fr 380px;
+      gap: 12px;
+      padding: 12px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Common Card Styling */
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      background: rgba(15, 23, 42, 0.6);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.92rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-body { padding: 14px; overflow-y: auto; flex: 1; }
+
+    /* Left Panel: Mission Setup */
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; }
+    select, input {
+      width: 100%;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: var(--text-main);
+      font-size: 0.88rem;
+      outline: none;
+    }
+    select:focus, input:focus { border-color: var(--accent-blue); }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      font-size: 0.92rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #0369a1); color: white; margin-bottom: 8px; }
+    .btn-primary:hover { background: linear-gradient(135deg, #0369a1, #075985); }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-action { background: #334155; color: white; padding: 8px 10px; font-size: 0.8rem; border-radius: 6px; margin-bottom: 6px; }
+    .btn-action:hover { background: #475569; }
+
+    /* Center: Visualizer & Master Report */
+    .center-col { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+    .visualizer-container {
+      flex: 1;
+      position: relative;
+      background: #050811;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+      overflow: hidden;
+      min-height: 420px;
+    }
+    #threeContainer { width: 100%; height: 100%; position: absolute; top: 0; left: 0; display: block; }
+    #radarCanvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; display: none; }
+
+    /* Overlay Controls on 3D/2D View */
+    .view-overlay {
+      position: absolute;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(6px);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      z-index: 10;
+    }
+
+    .view-mode-toggle {
+      display: flex;
+      gap: 4px;
+      background: rgba(9, 13, 22, 0.9);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .view-toggle-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+    .view-toggle-btn.active {
+      background: var(--accent-blue);
+      color: #090d16;
+    }
+
+    .cam-btn {
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.2s;
+    }
+    .cam-btn:hover { background: #3b82f6; }
+
+    /* Master Report Box */
+    .master-box {
+      background: #0c1427;
+      border: 1px solid #1e3a8a;
+      border-radius: 10px;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .master-title { font-size: 0.85rem; color: var(--accent-gold); font-weight: 700; margin-bottom: 2px; }
+    .master-detail { font-size: 0.78rem; color: var(--text-muted); }
+    .progress-bar-bg { background: #1e293b; height: 8px; width: 170px; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+    .progress-bar-fill { background: var(--accent-blue); height: 100%; width: 0%; transition: width 0.3s; }
+
+    /* Right Panel: Per-UAV Telemetry Cards */
+    .uav-card {
+      background: #151f32;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 9px;
+      transition: all 0.25s;
+    }
+    .uav-card.fault {
+      border-color: var(--accent-red);
+      background: rgba(239, 68, 68, 0.08);
+      animation: pulseBorder 1.5s infinite;
+    }
+    @keyframes pulseBorder {
+      0%, 100% { border-color: rgba(239, 68, 68, 0.6); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.3); }
+    }
+    .uav-card.leader { border-color: var(--accent-gold); }
+    .uav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .uav-title { font-weight: 700; font-size: 0.92rem; display: flex; align-items: center; gap: 6px; }
+    .role-tag { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); }
+    .battery-track { background: #090d16; height: 6px; border-radius: 3px; overflow: hidden; margin: 5px 0; }
+    .battery-fill { height: 100%; background: var(--accent-green); transition: width 0.3s; }
+    .telemetry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 0.74rem; color: var(--text-muted); }
+    .telemetry-grid span b { color: var(--text-main); }
+
+    /* Event Log */
+    .log-container {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      height: 95px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.74rem;
+    }
+    .log-line { margin-bottom: 3px; color: #cbd5e1; }
+    .log-line.fault { color: #f87171; font-weight: bold; }
+    .log-line.success { color: #4ade80; }
+
+    /* Modal for Evaluation Plots */
+    .modal {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      width: 90%;
+      max-width: 1050px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header { padding: 14px 20px; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; }
+    .modal-body { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+    .plot-img { width: 100%; border-radius: 8px; border: 1px solid var(--card-border); }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="brand">
+      <i class="fa-solid fa-drone"></i>
+      <span>AUTONOMOUS UAV SWARM — 3D MISSION CONTROL</span>
+    </div>
+    <div class="top-stats">
+      <div class="stat-badge" id="backendBadge"><i class="fa-solid fa-server"></i> Standby</div>
+      <div class="stat-badge badge-nominal" id="statusBadge"><i class="fa-solid fa-shield-heart"></i> Swarm: IDLE</div>
+      <div class="stat-badge" id="leaderBadge"><i class="fa-solid fa-crown"></i> Master: —</div>
+    </div>
+  </header>
+
+  <!-- Main Grid Workspace -->
+  <div class="workspace">
+
+    <!-- LEFT: Mission Configuration & Flight Controls -->
+    <div class="panel">
+      <div class="panel-header">
+        <span><i class="fa-solid fa-sliders"></i> Mission Parameters</span>
+      </div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>Fleet Size (UAV Agents)</label>
+          <select id="fleetSize">
+            <option value="4" selected>4 UAVs (Standard Swarm)</option>
+            <option value="3">3 UAVs</option>
+            <option value="2">2 UAVs</option>
+            <option value="5">5 UAVs (Scaled)</option>
+            <option value="6">6 UAVs (Large Swarm)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Mission Profile</label>
+          <select id="missionProfile">
+            <option value="survey">Area Surveillance & 3D Waypoint Mapping</option>
+            <option value="perimeter">Perimeter Geofence Defense</option>
+            <option value="sar">Autonomous Search & Rescue</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Automated Fault Injection Scenario</label>
+          <select id="faultScenario">
+            <option value="none" selected>Nominal Flight (Zero Injected Faults)</option>
+            <option value="gps_uav2">Inject GPS Failure on UAV-2 at 25s</option>
+            <option value="batt_uav1">Deplete UAV-1 Battery (Triggers Leader Election)</option>
+            <option value="gyro_uav3">Inject Gyroscope Failure on UAV-3 at 30s</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary" id="btnStart" onclick="startMission()">
+          <i class="fa-solid fa-rocket"></i> INITIATE MISSION
+        </button>
+        <button class="btn btn-danger" id="btnStop" onclick="stopMission()">
+          <i class="fa-solid fa-hand"></i> EMERGENCY LAND & STOP
+        </button>
+
+        <hr style="border: 0; border-top: 1px solid var(--card-border); margin: 12px 0;">
+
+        <!-- Quick Flight Control Actions including Return to Home -->
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-gold); margin-bottom: 6px;">
+          <i class="fa-solid fa-gamepad"></i> SWARM FLIGHT COMMANDS
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+          <button class="btn btn-action" onclick="sendCommand('takeoff')"><i class="fa-solid fa-plane-departure"></i> Takeoff All</button>
+          <button class="btn btn-action" onclick="sendCommand('land')"><i class="fa-solid fa-plane-arrival"></i> Land All</button>
+        </div>
+        <!-- Return to Home (RTL) Primary Button -->
+        <button class="btn btn-action" style="background: linear-gradient(135deg, #eab308, #ca8a04); font-weight: 700; color: #0f172a; margin-bottom: 12px;" onclick="triggerRTL('all')">
+          <i class="fa-solid fa-house-chimney"></i> RETURN TO HOME (RTL ALL)
+        </button>
+
+        <hr style="border: 0; border-top: 1px solid var(--card-border); margin: 10px 0;">
+
+        <!-- Advanced Fault Injection Console -->
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--accent-blue); margin-bottom: 8px;">
+          <i class="fa-solid fa-bolt"></i> FAULT INJECTION CONSOLE
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted);">Target Drone</label>
+            <select id="faultTargetUav" style="padding: 8px 10px; font-size: 0.85rem;">
+              <option value="UAV-1">UAV-1 (Master)</option>
+              <option value="UAV-2" selected>UAV-2</option>
+              <option value="UAV-3">UAV-3</option>
+              <option value="UAV-4">UAV-4</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.72rem; color: var(--text-muted);">Fault Type</label>
+            <select id="faultTypeSelect" style="padding: 8px 10px; font-size: 0.85rem;">
+              <option value="GPS">🔴 GPS Failure</option>
+              <option value="Gyroscope">🌀 Gyroscope Failure</option>
+              <option value="Accelerometer">📐 Accelerometer Failure</option>
+              <option value="Barometer">🌡️ Barometer Failure</option>
+              <option value="Compass">🧭 Compass Failure</option>
+              <option value="batt 14">🔋 Low Battery (14% - Re-elect)</option>
+              <option value="batt 8">🪫 Critical Battery (8% - Land)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <button class="btn btn-action" style="flex: 1; background: #dc2626; color: white;" onclick="triggerCustomFault()">
+            <i class="fa-solid fa-bolt"></i> Inject Fault
+          </button>
+          <button class="btn btn-action" style="flex: 1; background: #059669; color: white;" onclick="clearTargetUav()">
+            <i class="fa-solid fa-wrench"></i> Clear Target
+          </button>
+        </div>
+
+        <button class="btn btn-action" onclick="sendCommand('clear all')">
+          <i class="fa-solid fa-rotate-left"></i> Restore All UAVs to 100% Nominal
+        </button>
+
+        <hr style="border: 0; border-top: 1px solid var(--card-border); margin: 12px 0;">
+
+        <button class="btn btn-action" style="background: #2563eb;" onclick="openPlotsModal()">
+          <i class="fa-solid fa-chart-line"></i> View Scientific Evaluation Plots
+        </button>
+
+        <div style="display: flex; gap: 6px; margin-top: 6px;">
+          <a href="/api/download/json" download class="btn btn-action" style="text-decoration: none; text-align: center; flex: 1; background: #1e293b;">
+            <i class="fa-solid fa-file-code"></i> JSON Report
+          </a>
+          <a href="/api/download/csv" download class="btn btn-action" style="text-decoration: none; text-align: center; flex: 1; background: #1e293b;">
+            <i class="fa-solid fa-table"></i> CSV Flight Log
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: 3D Tactical Theater & Real-Time Radar -->
+    <div class="center-col">
+      <div class="visualizer-container" id="visualizerContainer">
+        <!-- 3D Three.js WebGL Container -->
+        <div id="threeContainer"></div>
+        <!-- 2D Canvas Fallback View -->
+        <canvas id="radarCanvas"></canvas>
+        
+        <!-- Top Left Map Title & Geofence Badges -->
+        <div class="view-overlay" style="top: 10px; left: 12px;">
+          <div style="font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-cube" style="color: var(--accent-blue);"></i>
+            <span id="arenaTitle">3D Swarm Airspace & Geofence Arena</span>
+          </div>
+          <span style="color: #facc15; font-weight: 700;">🏠 Base (0,0,0)</span> | 
+          <span style="color: #ef4444;">● NFZ-Alpha Hospital (r=18m)</span> | 
+          <span style="color: #f97316;">● NFZ-Bravo Airport (r=22m)</span>
+        </div>
+
+        <!-- Top Right View Mode Toggle & Display Options -->
+        <div class="view-overlay" style="top: 10px; right: 12px; display: flex; align-items: center; gap: 10px;">
+          <div class="view-mode-toggle">
+            <button id="btnView3D" class="view-toggle-btn active" onclick="setViewMode('3D')">
+              <i class="fa-solid fa-cube"></i> 3D Theater
+            </button>
+            <button id="btnView2D" class="view-toggle-btn" onclick="setViewMode('2D')">
+              <i class="fa-solid fa-map"></i> 2D Radar
+            </button>
+          </div>
+          <div style="display: flex; gap: 7px; font-size: 0.72rem; align-items: center;">
+            <label style="cursor: pointer;"><input type="checkbox" id="chkRoutes" checked onchange="toggleLayer('routes')"> Routes</label>
+            <label style="cursor: pointer;"><input type="checkbox" id="chkWPs" checked onchange="toggleLayer('wps')"> WPs</label>
+            <label style="cursor: pointer;"><input type="checkbox" id="chkTrails" checked onchange="toggleLayer('trails')"> Trails</label>
+            <label style="cursor: pointer; color: #facc15; font-weight: 700;"><input type="checkbox" id="chkRTL" checked onchange="toggleLayer('rtl')"> RTL Paths</label>
+          </div>
+          <div id="radarZoomControls" style="display: none; gap: 5px; align-items: center; border-left: 1px solid #334155; padding-left: 8px;">
+            <button onclick="zoomRadar(0.18)" title="Zoom In 2D Radar" style="background: #1e293b; border: 1px solid #475569; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+            <button onclick="zoomRadar(-0.18)" title="Zoom Out 2D Radar" style="background: #1e293b; border: 1px solid #475569; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.75rem;">
+              <i class="fa-solid fa-minus"></i>
+            </button>
+            <button onclick="resetRadarZoom()" title="Reset 2D Radar View & Center" style="background: #1e293b; border: 1px solid #475569; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.70rem; cursor: pointer;">
+              <i class="fa-solid fa-rotate-left"></i> Fit All
+            </button>
+            <span id="zoomLevelDisplay" style="color: #94a3b8; font-size: 0.70rem; font-family: monospace; font-weight: 600;">100%</span>
+          </div>
+        </div>
+
+        <!-- Bottom Left Route Color Legend & RTL Status -->
+        <div class="view-overlay" style="bottom: 10px; left: 12px; font-size: 0.72rem; line-height: 1.4;">
+          <span style="color: #facc15;">━ UAV-1: Sector Alpha (Survey)</span><br>
+          <span style="color: #38bdf8;">━ UAV-2: Comms Relay & Recon</span><br>
+          <span style="color: #c084fc;">━ UAV-3: Sector Bravo (Airport)</span><br>
+          <span style="color: #34d399;">━ UAV-4: Perimeter Defense</span><br>
+          <span style="color: #fbbf24; font-weight: 700;">⮌ Yellow Dashed: Inbound RTL Recovery Path</span>
+        </div>
+
+        <!-- Bottom Right 3D Camera Presets -->
+        <div id="cameraControls3D" style="position: absolute; bottom: 10px; right: 12px; display: flex; gap: 6px; z-index: 10;">
+          <button class="cam-btn" onclick="setCamPreset('orbit')"><i class="fa-solid fa-compass"></i> 3D Orbit</button>
+          <button class="cam-btn" onclick="setCamPreset('home')"><i class="fa-solid fa-house"></i> Focus Home</button>
+          <button class="cam-btn" onclick="setCamPreset('top')"><i class="fa-solid fa-arrow-down"></i> Top-Down</button>
+          <button class="cam-btn" onclick="setCamPreset('leader')"><i class="fa-solid fa-crown"></i> Track Master</button>
+          <button class="cam-btn" onclick="setCamPreset('fault')"><i class="fa-solid fa-triangle-exclamation"></i> Focus Fault</button>
+          <button class="cam-btn" onclick="reset3DCamera()"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+        </div>
+      </div>
+
+      <!-- Live AI Decision Engine Pipeline Tracker -->
+      <div style="background: #090d16; border: 1px solid #1e3a8a; border-radius: 8px; padding: 7px 14px; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between;">
+        <span style="color: var(--accent-blue); font-weight: 700;"><i class="fa-solid fa-brain"></i> AGENTIC AI PIPELINE:</span>
+        <div id="aiPipelineNodes" style="display: flex; gap: 6px; align-items: center; color: var(--text-muted); font-size: 0.72rem;">
+          <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px;">1. Telemetry</span> ➔
+          <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px;" id="pipeFdi">2. FDI Model: Nominal</span> ➔
+          <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px;" id="pipeRisk">3. Risk: 0.00</span> ➔
+          <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px;" id="pipeCbf">4. CBF: Safe Barrier</span> ➔
+          <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px;" id="pipeSwarm">5. Swarm: Nominal</span>
+        </div>
+      </div>
+
+      <!-- Master System Telemetry Box -->
+      <div class="master-box">
+        <div>
+          <div class="master-title" id="masterTitle">👑 MASTER UAV TELEMETRY REPORT</div>
+          <div class="master-detail" id="masterDetail">Awaiting mission launch...</div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-align: right;" id="progressText">0% Complete</div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progressBar"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Event Log -->
+      <div class="log-container" id="eventLog">
+        <div class="log-line">System initialized. Configure mission parameters and click 'Initiate Mission'.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Live Per-UAV Telemetry Cards -->
+    <div class="panel">
+      <div class="panel-header">
+        <span><i class="fa-solid fa-microchip"></i> Live Swarm Telemetry</span>
+        <span style="font-size: 0.8rem; color: var(--accent-blue);" id="fleetCount">0 Active</span>
+      </div>
+      <div class="panel-body" id="uavCardsContainer">
+        <div style="color: var(--text-muted); text-align: center; margin-top: 40px; font-size: 0.85rem;">
+          No active telemetry.<br>Click <b>Initiate Mission</b> to launch.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal for Scientific Plots -->
+  <div class="modal" id="plotsModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span style="font-weight: 700; font-size: 1.1rem;"><i class="fa-solid fa-chart-pie"></i> Mission Scientific Evaluation & Trajectory Plots</span>
+        <button style="background: none; border: none; color: white; font-size: 1.3rem; cursor: pointer;" onclick="closePlotsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          High-resolution 300-DPI analysis figures generated by <code>plot_results.py</code> based on <code>flight_telemetry_log.csv</code>:
+        </p>
+        <img class="plot-img" id="imgTraj" src="/plots/swarm_3d_flight_trajectories.png" alt="3D Flight Trajectories">
+        <img class="plot-img" id="imgFdi" src="/plots/swarm_fdi_safety_timeline.png" alt="FDI Safety Timeline">
+        <img class="plot-img" id="imgMesh" src="/plots/swarm_mesh_performance.png" alt="Mesh Network Performance">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Global State & Mission Routes Configuration
+    // ═══════════════════════════════════════════════════════════════════════════
+    let swarmData = null;
+    let isMissionRunning = false;
+    let currentViewMode = '3D'; // '3D' or '2D'
+
+    const PLANNED_ROUTES = {
+      "UAV-1": {
+        name: "Sector Alpha",
+        color: "#facc15",
+        hexColor: 0xfacc15,
+        alt: 12,
+        points: [{x:0, y:0, z:12}, {x:30, y:15, z:12}, {x:70, y:15, z:12}, {x:85, y:-10, z:12}, {x:45, y:-20, z:12}, {x:0, y:0, z:12}]
+      },
+      "UAV-2": {
+        name: "Relay & Recon",
+        color: "#38bdf8",
+        hexColor: 0x38bdf8,
+        alt: 14,
+        points: [{x:20, y:10, z:14}, {x:50, y:25, z:14}, {x:85, y:60, z:14}, {x:50, y:95, z:14}, {x:15, y:60, z:14}, {x:20, y:10, z:14}]
+      },
+      "UAV-3": {
+        name: "Sector Bravo",
+        color: "#c084fc",
+        hexColor: 0xc084fc,
+        alt: 11,
+        points: [{x:-20, y:30, z:11}, {x:-50, y:65, z:11}, {x:-50, y:115, z:11}, {x:20, y:115, z:11}, {x:20, y:65, z:11}, {x:-20, y:30, z:11}]
+      },
+      "UAV-4": {
+        name: "Perimeter Patrol",
+        color: "#34d399",
+        hexColor: 0x34d399,
+        alt: 10,
+        points: [{x:10, y:-15, z:10}, {x:35, y:-25, z:10}, {x:50, y:-10, z:10}, {x:25, y:5, z:10}, {x:10, y:-15, z:10}]
+      }
+    };
+
+    // Designated Return-to-Home touchdown slot locations on Home Base pad
+    const RTL_SLOTS = {
+      "UAV-1": { x: -3.5, y: 0.35, z: 3.5, label: "Slot 1" },
+      "UAV-2": { x: 3.5,  y: 0.35, z: 3.5, label: "Slot 2" },
+      "UAV-3": { x: -3.5, y: 0.35, z: -3.5, label: "Slot 3" },
+      "UAV-4": { x: 3.5,  y: 0.35, z: -3.5, label: "Slot 4" }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 3D Three.js Spatial Visualizer Engine
+    // ═══════════════════════════════════════════════════════════════════════════
+    let scene, camera, renderer, controls;
+    const droneMeshes = {};        // { "UAV-1": THREE.Group }
+    const waypointGroup = new THREE.Group();
+    const routeGroup = new THREE.Group();
+    const homeGroup = new THREE.Group();
+    const rtlVectorGroup = new THREE.Group();
+    let threeInitialized = false;
+
+    function initThreeScene() {
+      const container = document.getElementById('threeContainer');
+      const width = container.clientWidth || 800;
+      const height = container.clientHeight || 500;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x050811);
+      scene.fog = new THREE.FogExp2(0x050811, 0.0035);
+
+      camera = new THREE.PerspectiveCamera(48, width / height, 0.5, 1000);
+      camera.position.set(20, 85, 125);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.maxPolarAngle = Math.PI / 2 - 0.02; // Keep camera above ground
+      controls.target.set(15, 10, -20);
+
+      // Lighting
+      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+      scene.add(ambient);
+
+      const dirLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+      dirLight.position.set(60, 120, 60);
+      scene.add(dirLight);
+
+      const secondaryLight = new THREE.DirectionalLight(0xa855f7, 0.55);
+      secondaryLight.position.set(-60, 50, -60);
+      scene.add(secondaryLight);
+
+      // Ground Aerospace Grid
+      const grid = new THREE.GridHelper(260, 26, 0x1e3a8a, 0x0f172a);
+      grid.position.y = 0;
+      scene.add(grid);
+
+      // Concentric Range Rings on Ground
+      [25, 50, 75, 100].forEach(r => {
+        const ringGeo = new THREE.RingGeometry(r - 0.2, r + 0.2, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x1e293b, side: THREE.DoubleSide });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotation.x = -Math.PI / 2;
+        ringMesh.position.y = 0.05;
+        scene.add(ringMesh);
+      });
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // HIGHLIGHTED HOME BASE / RTL RECOVERY ZONE (0, 0, 0)
+      // ─────────────────────────────────────────────────────────────────────────
+      scene.add(homeGroup);
+
+      // 1. Helipad Main Deck (radius 10m)
+      const padGeo = new THREE.CylinderGeometry(10, 10, 0.35, 36);
+      const padMat = new THREE.MeshStandardMaterial({ color: 0x0369a1, metalness: 0.5, roughness: 0.25 });
+      const pad = new THREE.Mesh(padGeo, padMat);
+      pad.position.set(0, 0.17, 0);
+      homeGroup.add(pad);
+
+      // 2. Helipad Outer Safety Border (Gold Ring)
+      const padBorderGeo = new THREE.RingGeometry(9.6, 10.4, 36);
+      const padBorderMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
+      const padBorder = new THREE.Mesh(padBorderGeo, padBorderMat);
+      padBorder.rotation.x = -Math.PI / 2;
+      padBorder.position.y = 0.36;
+      homeGroup.add(padBorder);
+
+      // 3. Inner Landing Circle (Cyan Ring)
+      const padInnerGeo = new THREE.RingGeometry(4.8, 5.4, 36);
+      const padInnerMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide });
+      const padInner = new THREE.Mesh(padInnerGeo, padInnerMat);
+      padInner.rotation.x = -Math.PI / 2;
+      padInner.position.y = 0.37;
+      homeGroup.add(padInner);
+
+      // 4. Helipad 'H' Symbol (White/Gold crossbars)
+      const hMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+      const bar1Geo = new THREE.PlaneGeometry(0.8, 5.0);
+      const bar1 = new THREE.Mesh(bar1Geo, hMat);
+      bar1.rotation.x = -Math.PI / 2; bar1.position.set(-1.6, 0.38, 0);
+      homeGroup.add(bar1);
+
+      const bar2 = new THREE.Mesh(bar1Geo, hMat);
+      bar2.rotation.x = -Math.PI / 2; bar2.position.set(1.6, 0.38, 0);
+      homeGroup.add(bar2);
+
+      const barCrossGeo = new THREE.PlaneGeometry(2.4, 0.8);
+      const barCross = new THREE.Mesh(barCrossGeo, hMat);
+      barCross.rotation.x = -Math.PI / 2; barCross.position.set(0, 0.38, 0);
+      homeGroup.add(barCross);
+
+      // 5. Four Dedicated UAV Touchdown Slots on Helipad
+      const slotColors = [0xfacc15, 0x38bdf8, 0xc084fc, 0x34d399];
+      Object.keys(RTL_SLOTS).forEach((uid, idx) => {
+        const slot = RTL_SLOTS[uid];
+        const sRingGeo = new THREE.RingGeometry(1.0, 1.35, 20);
+        const sRingMat = new THREE.MeshBasicMaterial({ color: slotColors[idx], side: THREE.DoubleSide });
+        const sRing = new THREE.Mesh(sRingGeo, sRingMat);
+        sRing.rotation.x = -Math.PI / 2;
+        sRing.position.set(slot.x, 0.39, slot.z);
+        homeGroup.add(sRing);
+      });
+
+      // 6. High-Intensity Vertical Sky Beacon Pillar (50m Light Column)
+      const beaconPillarGeo = new THREE.CylinderGeometry(1.8, 1.8, 55, 24, 1, true);
+      const beaconPillarMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending
+      });
+      const beaconPillar = new THREE.Mesh(beaconPillarGeo, beaconPillarMat);
+      beaconPillar.position.set(0, 27.5, 0);
+      homeGroup.add(beaconPillar);
+
+      // Inner Core Light Beam
+      const corePillarGeo = new THREE.CylinderGeometry(0.4, 0.4, 55, 16, 1, true);
+      const corePillarMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending
+      });
+      const corePillar = new THREE.Mesh(corePillarGeo, corePillarMat);
+      corePillar.position.set(0, 27.5, 0);
+      homeGroup.add(corePillar);
+
+      // 7. Concentric Animated Radar Wave Rings
+      const pulseGeo1 = new THREE.RingGeometry(0.5, 1.2, 32);
+      const pulseMat1 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+      const pulse1 = new THREE.Mesh(pulseGeo1, pulseMat1);
+      pulse1.rotation.x = -Math.PI / 2;
+      pulse1.position.y = 0.22;
+      homeGroup.add(pulse1);
+
+      const pulseGeo2 = new THREE.RingGeometry(0.5, 1.2, 32);
+      const pulseMat2 = new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+      const pulse2 = new THREE.Mesh(pulseGeo2, pulseMat2);
+      pulse2.rotation.x = -Math.PI / 2;
+      pulse2.position.y = 0.24;
+      homeGroup.add(pulse2);
+
+      homeGroup.userData.pulse1 = pulse1;
+      homeGroup.userData.pulse2 = pulse2;
+
+      // 8. Floating Holographic 3D Text Banner
+      const homeCanvas = document.createElement('canvas');
+      homeCanvas.width = 340; homeCanvas.height = 76;
+      const hctx = homeCanvas.getContext('2d');
+      hctx.fillStyle = 'rgba(3, 105, 161, 0.88)';
+      hctx.roundRect ? hctx.roundRect(0, 0, 340, 76, 14) : hctx.fillRect(0, 0, 340, 76);
+      hctx.fill();
+      hctx.lineWidth = 3.5; hctx.strokeStyle = '#facc15'; hctx.stroke();
+      hctx.font = 'bold 28px sans-serif';
+      hctx.fillStyle = '#ffffff';
+      hctx.textAlign = 'center';
+      hctx.fillText('🏠 HOME / RTL BASE (0,0)', 170, 48);
+
+      const homeTex = new THREE.CanvasTexture(homeCanvas);
+      const homeSpriteMat = new THREE.SpriteMaterial({ map: homeTex, transparent: true });
+      const homeSprite = new THREE.Sprite(homeSpriteMat);
+      homeSprite.scale.set(11, 2.5, 1);
+      homeSprite.position.set(0, 16, 0);
+      homeGroup.add(homeSprite);
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // 3D No-Fly Zones
+      // ─────────────────────────────────────────────────────────────────────────
+      // NFZ-Alpha Hospital (x=50, y=60, r=18, alt=25) -> Three.js: X=50, Y=12.5, Z=-60
+      const nfz1Geo = new THREE.CylinderGeometry(18, 18, 25, 32, 1, false);
+      const nfz1Mat = new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        transparent: true,
+        opacity: 0.22,
+        roughness: 0.3,
+        side: THREE.DoubleSide
+      });
+      const nfz1 = new THREE.Mesh(nfz1Geo, nfz1Mat);
+      nfz1.position.set(50, 12.5, -60);
+      scene.add(nfz1);
+
+      const nfz1WireGeo = new THREE.CylinderGeometry(18.05, 18.05, 25.1, 24, 2, true);
+      const nfz1WireMat = new THREE.MeshBasicMaterial({ color: 0xef4444, wireframe: true });
+      const nfz1Wire = new THREE.Mesh(nfz1WireGeo, nfz1WireMat);
+      nfz1Wire.position.set(50, 12.5, -60);
+      scene.add(nfz1Wire);
+
+      // Outer Guardrail Layer 1 Detection Envelope (r=28m)
+      const nfz1BufGeo = new THREE.CylinderGeometry(28, 28, 25.2, 24, 2, true);
+      const nfz1BufMat = new THREE.MeshBasicMaterial({ color: 0xef4444, wireframe: true, transparent: true, opacity: 0.35 });
+      const nfz1Buf = new THREE.Mesh(nfz1BufGeo, nfz1BufMat);
+      nfz1Buf.position.set(50, 12.5, -60);
+      scene.add(nfz1Buf);
+
+      // NFZ-Bravo Airport (x=-15, y=90, r=22, alt=30) -> Three.js: X=-15, Y=15, Z=-90
+      const nfz2Geo = new THREE.CylinderGeometry(22, 22, 30, 32, 1, false);
+      const nfz2Mat = new THREE.MeshStandardMaterial({
+        color: 0xf97316,
+        transparent: true,
+        opacity: 0.22,
+        roughness: 0.3,
+        side: THREE.DoubleSide
+      });
+      const nfz2 = new THREE.Mesh(nfz2Geo, nfz2Mat);
+      nfz2.position.set(-15, 15, -90);
+      scene.add(nfz2);
+
+      const nfz2WireGeo = new THREE.CylinderGeometry(22.05, 22.05, 30.1, 24, 2, true);
+      const nfz2WireMat = new THREE.MeshBasicMaterial({ color: 0xf97316, wireframe: true });
+      const nfz2Wire = new THREE.Mesh(nfz2WireGeo, nfz2WireMat);
+      nfz2Wire.position.set(-15, 15, -90);
+      scene.add(nfz2Wire);
+
+      // Outer Guardrail Layer 1 Detection Envelope (r=32m)
+      const nfz2BufGeo = new THREE.CylinderGeometry(32, 32, 30.2, 24, 2, true);
+      const nfz2BufMat = new THREE.MeshBasicMaterial({ color: 0xf97316, wireframe: true, transparent: true, opacity: 0.35 });
+      const nfz2Buf = new THREE.Mesh(nfz2BufGeo, nfz2BufMat);
+      nfz2Buf.position.set(-15, 15, -90);
+      scene.add(nfz2Buf);
+
+      // Add route and RTL groups
+      scene.add(routeGroup);
+      scene.add(waypointGroup);
+      scene.add(rtlVectorGroup);
+
+      build3DRoutesAndWaypoints();
+
+      window.addEventListener('resize', onWindowResize3D);
+      threeInitialized = true;
+      animateThree();
+    }
+
+    function onWindowResize3D() {
+      if (!renderer || !camera) return;
+      const container = document.getElementById('threeContainer');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    }
+
+    // Build 3D Route Ribbons & Waypoint Crystals
+    function build3DRoutesAndWaypoints() {
+      routeGroup.clear();
+      waypointGroup.clear();
+
+      Object.keys(PLANNED_ROUTES).forEach(uid => {
+        const route = PLANNED_ROUTES[uid];
+        const pts = route.points.map(p => new THREE.Vector3(p.x, p.z, -p.y));
+
+        // 3D Route Line
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        const lineMat = new THREE.LineDashedMaterial({
+          color: route.hexColor,
+          dashSize: 3,
+          gapSize: 2,
+          linewidth: 2,
+          transparent: true,
+          opacity: 0.6
+        });
+        const line = new THREE.Line(lineGeo, lineMat);
+        line.computeLineDistances();
+        routeGroup.add(line);
+
+        // 3D Floating Waypoint Crystals
+        pts.forEach((pt, idx) => {
+          if (idx === pts.length - 1 && pts.length > 1) return; // skip loop closer
+          const octGeo = new THREE.OctahedronGeometry(1.0);
+          const octMat = new THREE.MeshStandardMaterial({
+            color: route.hexColor,
+            emissive: route.hexColor,
+            emissiveIntensity: 0.4,
+            metalness: 0.5,
+            roughness: 0.2
+          });
+          const crystal = new THREE.Mesh(octGeo, octMat);
+          crystal.position.copy(pt);
+          waypointGroup.add(crystal);
+
+          // Thin drop-beacon light to ground
+          const beamGeo = new THREE.CylinderGeometry(0.08, 0.08, pt.y, 8);
+          const beamMat = new THREE.MeshBasicMaterial({ color: route.hexColor, transparent: true, opacity: 0.25 });
+          const beam = new THREE.Mesh(beamGeo, beamMat);
+          beam.position.set(pt.x, pt.y / 2, pt.z);
+          waypointGroup.add(beam);
+        });
+      });
+    }
+
+    // Generate Full 3D Quadcopter Model
+    function create3DDroneMesh(uid, hexColor) {
+      const drone = new THREE.Group();
+
+      // Fuselage central pod
+      const bodyGeo = new THREE.BoxGeometry(2.4, 0.6, 2.4);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.3 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      drone.add(body);
+
+      // Top Cockpit Dome
+      const domeGeo = new THREE.SphereGeometry(0.85, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+      const domeMat = new THREE.MeshStandardMaterial({ color: hexColor, metalness: 0.5, roughness: 0.2, emissive: hexColor, emissiveIntensity: 0.25 });
+      const dome = new THREE.Mesh(domeGeo, domeMat);
+      dome.position.y = 0.3;
+      drone.add(dome);
+
+      // 4 Carbon Arms (diagonal)
+      const armGeo = new THREE.CylinderGeometry(0.12, 0.12, 4.4, 8);
+      const armMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.2 });
+      
+      const arm1 = new THREE.Mesh(armGeo, armMat);
+      arm1.rotation.z = Math.PI / 2;
+      arm1.rotation.y = Math.PI / 4;
+      drone.add(arm1);
+
+      const arm2 = new THREE.Mesh(armGeo, armMat);
+      arm2.rotation.z = Math.PI / 2;
+      arm2.rotation.y = -Math.PI / 4;
+      drone.add(arm2);
+
+      // 4 Motors & Spinning Propellers
+      const rotors = [];
+      const offsets = [
+        { x: 1.5, z: 1.5 },
+        { x: -1.5, z: 1.5 },
+        { x: 1.5, z: -1.5 },
+        { x: -1.5, z: -1.5 }
+      ];
+
+      offsets.forEach(off => {
+        const nacelleGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.4, 12);
+        const nacelleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.7 });
+        const nacelle = new THREE.Mesh(nacelleGeo, nacelleMat);
+        nacelle.position.set(off.x, 0.1, off.z);
+        drone.add(nacelle);
+
+        const propGeo = new THREE.CylinderGeometry(1.1, 1.1, 0.04, 16);
+        const propMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.55 });
+        const prop = new THREE.Mesh(propGeo, propMat);
+        prop.position.set(off.x, 0.32, off.z);
+        drone.add(prop);
+        rotors.push(prop);
+      });
+      drone.userData.rotors = rotors;
+
+      // LED Top Beacon
+      const beaconGeo = new THREE.SphereGeometry(0.32, 12, 12);
+      const beaconMat = new THREE.MeshStandardMaterial({ color: hexColor, emissive: hexColor, emissiveIntensity: 1.0 });
+      const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+      beacon.position.y = 0.95;
+      drone.add(beacon);
+      drone.userData.beacon = beacon;
+
+      // Ground Altitude Drop Laser Line
+      const dropLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -12, 0)]);
+      const dropLineMat = new THREE.LineDashedMaterial({ color: hexColor, dashSize: 0.8, gapSize: 0.5, transparent: true, opacity: 0.5 });
+      const dropLine = new THREE.Line(dropLineGeo, dropLineMat);
+      drone.add(dropLine);
+      drone.userData.dropLine = dropLine;
+
+      // Ground Shadow Projection Disc
+      const shadowGeo = new THREE.RingGeometry(0.4, 1.6, 24);
+      const shadowMat = new THREE.MeshBasicMaterial({ color: hexColor, side: THREE.DoubleSide, transparent: true, opacity: 0.45 });
+      const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+      shadow.rotation.x = -Math.PI / 2;
+      scene.add(shadow);
+      drone.userData.shadow = shadow;
+
+      // Floating 3D Text Tag
+      const canvasText = document.createElement('canvas');
+      canvasText.width = 256; canvasText.height = 64;
+      const ctxText = canvasText.getContext('2d');
+      ctxText.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctxText.roundRect ? ctxText.roundRect(0, 0, 256, 64, 12) : ctxText.fillRect(0, 0, 256, 64);
+      ctxText.fill();
+      ctxText.font = 'bold 28px sans-serif';
+      ctxText.fillStyle = '#ffffff';
+      ctxText.textAlign = 'center';
+      ctxText.fillText(`${uid}`, 128, 42);
+
+      const texture = new THREE.CanvasTexture(canvasText);
+      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(6, 1.5, 1);
+      sprite.position.y = 2.4;
+      drone.add(sprite);
+      drone.userData.sprite = sprite;
+
+      scene.add(drone);
+      droneMeshes[uid] = drone;
+      return drone;
+    }
+
+    // Three.js Render & Physics Loop
+    function animateThree() {
+      requestAnimationFrame(animateThree);
+
+      const time = Date.now() * 0.003;
+
+      // Spin propellers
+      Object.values(droneMeshes).forEach(d => {
+        if (d.userData.rotors) {
+          d.userData.rotors.forEach(r => r.rotation.y += 0.45);
+        }
+      });
+
+      // Bob crystals
+      waypointGroup.children.forEach((c, i) => {
+        if (c.geometry && c.geometry.type === 'OctahedronGeometry') {
+          c.rotation.y += 0.015;
+          c.rotation.x = Math.sin(time + i) * 0.15;
+        }
+      });
+
+      // Animate Home Base expanding pulse waves
+      if (homeGroup.userData.pulse1) {
+        const s1 = ((time * 7) % 25);
+        homeGroup.userData.pulse1.scale.set(s1 + 0.1, s1 + 0.1, 1);
+        homeGroup.userData.pulse1.material.opacity = Math.max(0, 0.85 - (s1 / 25));
+      }
+      if (homeGroup.userData.pulse2) {
+        const s2 = (((time * 7) + 12.5) % 25);
+        homeGroup.userData.pulse2.scale.set(s2 + 0.1, s2 + 0.1, 1);
+        homeGroup.userData.pulse2.material.opacity = Math.max(0, 0.85 - (s2 / 25));
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 2D Tactical Radar Engine (Alternate View)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const canvas2D = document.getElementById('radarCanvas');
+    const ctx2D = canvas2D.getContext('2d');
+
+    function resizeCanvas2D() {
+      canvas2D.width = canvas2D.parentElement.clientWidth;
+      canvas2D.height = canvas2D.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas2D);
+    resizeCanvas2D();
+
+    let radarZoom = 1.0;
+    let radarPanX = 0;
+    let radarPanY = 0;
+    let isPanningRadar = false;
+    let panStartX = 0, panStartY = 0;
+
+    function zoomRadar(delta) {
+      radarZoom = Math.max(0.35, Math.min(3.5, Math.round((radarZoom + delta) * 100) / 100));
+      const disp = document.getElementById('zoomLevelDisplay');
+      if (disp) disp.innerText = Math.round(radarZoom * 100) + '%';
+      render2DRadar();
+    }
+
+    function resetRadarZoom() {
+      radarZoom = 1.0;
+      radarPanX = 0;
+      radarPanY = 0;
+      const disp = document.getElementById('zoomLevelDisplay');
+      if (disp) disp.innerText = '100%';
+      render2DRadar();
+    }
+
+    // Mouse wheel zoom
+    canvas2D.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      zoomRadar(delta);
+    }, { passive: false });
+
+    // Drag to Pan
+    canvas2D.style.cursor = 'grab';
+    canvas2D.addEventListener('mousedown', (e) => {
+      isPanningRadar = true;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+      canvas2D.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isPanningRadar || currentViewMode !== '2D') return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      panStartX = e.clientX;
+      panStartY = e.clientY;
+
+      const spanX = (110 - (-70)) / radarZoom;
+      const spanY = (140 - (-40)) / radarZoom;
+
+      radarPanX -= (dx / canvas2D.width) * spanX;
+      radarPanY += (dy / canvas2D.height) * spanY;
+      render2DRadar();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isPanningRadar) {
+        isPanningRadar = false;
+        canvas2D.style.cursor = 'grab';
+      }
+    });
+
+    function worldToCanvas2D(wx, wy) {
+      // Full coverage bounds (-70 to 110 in X, -40 to 140 in Y) — comfortably fits all 6 UAV routes
+      const baseMinX = -70, baseMaxX = 110;
+      const baseMinY = -40, baseMaxY = 140;
+
+      const midX = (baseMinX + baseMaxX) / 2.0;
+      const midY = (baseMinY + baseMaxY) / 2.0;
+      const spanX = (baseMaxX - baseMinX) / radarZoom;
+      const spanY = (baseMaxY - baseMinY) / radarZoom;
+
+      const minX = midX - spanX / 2.0 + radarPanX;
+      const maxX = midX + spanX / 2.0 + radarPanX;
+      const minY = midY - spanY / 2.0 + radarPanY;
+      const maxY = midY + spanY / 2.0 + radarPanY;
+
+      const px = ((wx - minX) / (maxX - minX)) * canvas2D.width;
+      const py = canvas2D.height - (((wy - minY) / (maxY - minY)) * canvas2D.height);
+      return { x: px, y: py };
+    }
+
+    function render2DRadar() {
+      if (currentViewMode !== '2D') return;
+      ctx2D.clearRect(0, 0, canvas2D.width, canvas2D.height);
+
+      const showRoutes = document.getElementById('chkRoutes')?.checked ?? true;
+      const showWPs = document.getElementById('chkWPs')?.checked ?? true;
+      const showTrails = document.getElementById('chkTrails')?.checked ?? true;
+      const showRTL = document.getElementById('chkRTL')?.checked ?? true;
+
+      // Grid lines
+      ctx2D.strokeStyle = '#1e293b';
+      ctx2D.lineWidth = 1;
+      for (let x = 0; x < canvas2D.width; x += 40) {
+        ctx2D.beginPath(); ctx2D.moveTo(x, 0); ctx2D.lineTo(x, canvas2D.height); ctx2D.stroke();
+      }
+      for (let y = 0; y < canvas2D.height; y += 40) {
+        ctx2D.beginPath(); ctx2D.moveTo(0, y); ctx2D.lineTo(canvas2D.width, y); ctx2D.stroke();
+      }
+
+      // Base Station Launchpad at (0, 0) with glowing pulse waves
+      const basePt = worldToCanvas2D(0, 0);
+      const pulseR = ((Date.now() / 40) % 28);
+      ctx2D.strokeStyle = 'rgba(56, 189, 248, ' + Math.max(0, 1 - pulseR / 28) + ')';
+      ctx2D.lineWidth = 2;
+      ctx2D.beginPath(); ctx2D.arc(basePt.x, basePt.y, pulseR + 10, 0, 2 * Math.PI); ctx2D.stroke();
+
+      ctx2D.fillStyle = 'rgba(2, 132, 199, 0.4)';
+      ctx2D.beginPath(); ctx2D.arc(basePt.x, basePt.y, 18, 0, 2 * Math.PI); ctx2D.fill();
+      ctx2D.strokeStyle = '#facc15'; ctx2D.lineWidth = 2.5; ctx2D.stroke();
+      ctx2D.fillStyle = '#facc15'; ctx2D.font = 'bold 10px sans-serif';
+      ctx2D.fillText('🏠 HOME / RTL BASE (0,0)', basePt.x - 55, basePt.y + 32);
+
+      // Exact world-to-pixel scaling factor based on current radarZoom
+      // Full world span in X is 110 - (-70) = 180 meters
+      const meterToPixel = canvas2D.width / ((110 - (-70)) / radarZoom);
+
+      // NFZ-Alpha (Hospital): Center (50, 60), r=18m, buffer=28m
+      const nfz1 = worldToCanvas2D(50, 60);
+      const r1 = 18.0 * meterToPixel;
+      const r1_buf = (18.0 + 10.0) * meterToPixel; // Guardrail Layer 1 Detection Envelope (28m)
+
+      // Outer Layer 1 Guardrail Envelope (Dashed red perimeter)
+      ctx2D.save();
+      ctx2D.strokeStyle = 'rgba(239, 68, 68, 0.55)';
+      ctx2D.lineWidth = 1.5;
+      ctx2D.setLineDash([5, 4]);
+      ctx2D.beginPath(); ctx2D.arc(nfz1.x, nfz1.y, r1_buf, 0, 2 * Math.PI); ctx2D.stroke();
+      ctx2D.fillStyle = 'rgba(239, 68, 68, 0.06)'; ctx2D.fill();
+      ctx2D.restore();
+
+      // Inner Hard NFZ No-Fly Zone
+      ctx2D.fillStyle = 'rgba(239, 68, 68, 0.22)';
+      ctx2D.strokeStyle = '#ef4444'; ctx2D.lineWidth = 2.2;
+      ctx2D.beginPath(); ctx2D.arc(nfz1.x, nfz1.y, r1, 0, 2 * Math.PI); ctx2D.fill(); ctx2D.stroke();
+      ctx2D.fillStyle = '#fca5a5'; ctx2D.font = 'bold 10px sans-serif';
+      ctx2D.fillText('🚫 NFZ-Alpha: Hospital (18m)', nfz1.x - 65, nfz1.y - 4);
+      ctx2D.fillStyle = 'rgba(252, 165, 165, 0.85)'; ctx2D.font = '9px sans-serif';
+      ctx2D.fillText('🛡️ Guardrail Threshold: 28m', nfz1.x - 65, nfz1.y + 11);
+
+      // NFZ-Bravo (Airport): Center (-15, 90), r=22m, buffer=32m
+      const nfz2 = worldToCanvas2D(-15, 90);
+      const r2 = 22.0 * meterToPixel;
+      const r2_buf = (22.0 + 10.0) * meterToPixel; // Guardrail Layer 1 Detection Envelope (32m)
+
+      // Outer Layer 1 Guardrail Envelope (Dashed orange perimeter)
+      ctx2D.save();
+      ctx2D.strokeStyle = 'rgba(249, 115, 22, 0.55)';
+      ctx2D.lineWidth = 1.5;
+      ctx2D.setLineDash([5, 4]);
+      ctx2D.beginPath(); ctx2D.arc(nfz2.x, nfz2.y, r2_buf, 0, 2 * Math.PI); ctx2D.stroke();
+      ctx2D.fillStyle = 'rgba(249, 115, 22, 0.06)'; ctx2D.fill();
+      ctx2D.restore();
+
+      // Inner Hard NFZ No-Fly Zone
+      ctx2D.fillStyle = 'rgba(249, 115, 22, 0.22)';
+      ctx2D.strokeStyle = '#f97316'; ctx2D.lineWidth = 2.2;
+      ctx2D.beginPath(); ctx2D.arc(nfz2.x, nfz2.y, r2, 0, 2 * Math.PI); ctx2D.fill(); ctx2D.stroke();
+      ctx2D.fillStyle = '#fed7aa'; ctx2D.font = 'bold 10px sans-serif';
+      ctx2D.fillText('🚫 NFZ-Bravo: Airport (22m)', nfz2.x - 65, nfz2.y - 4);
+      ctx2D.fillStyle = 'rgba(254, 215, 170, 0.85)'; ctx2D.font = '9px sans-serif';
+      ctx2D.fillText('🛡️ Guardrail Threshold: 32m', nfz2.x - 65, nfz2.y + 11);
+
+      // Planned Waypoint Routes
+      Object.keys(PLANNED_ROUTES).forEach(uid => {
+        const route = PLANNED_ROUTES[uid];
+        const pts = route.points.map(p => worldToCanvas2D(p.x, p.y));
+
+        if (showRoutes && pts.length > 1) {
+          ctx2D.beginPath(); ctx2D.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) ctx2D.lineTo(pts[i].x, pts[i].y);
+          ctx2D.strokeStyle = route.color + '55';
+          ctx2D.lineWidth = 1.8; ctx2D.setLineDash([5, 5]); ctx2D.stroke(); ctx2D.setLineDash([]);
+        }
+
+        if (showWPs) {
+          pts.forEach((wp, idx) => {
+            if (idx === pts.length - 1 && pts.length > 1) return;
+            ctx2D.fillStyle = route.color + 'aa';
+            ctx2D.beginPath(); ctx2D.arc(wp.x, wp.y, 4, 0, 2 * Math.PI); ctx2D.fill();
+            ctx2D.fillStyle = '#94a3b8'; ctx2D.font = '8px sans-serif';
+            ctx2D.fillText(`${idx+1}`, wp.x + 6, wp.y + 3);
+          });
+        }
+      });
+
+      // Drone Trails, RTL Vectors, Dynamic Reroute Vectors & Drones
+      const trails = window.droneTrails = window.droneTrails || {};
+      if (swarmData && swarmData.agents_telemetry) {
+        swarmData.agents_telemetry.forEach(u => {
+          const pt = worldToCanvas2D(u.position.x, u.position.y);
+          const isLeader = u.is_leader;
+          const isFdi = u.fdi_fault && u.fdi_fault !== 'No Failure';
+          const isEnergy = (u.energy_alert && u.energy_alert !== 'NORMAL') || (u.battery_pct <= 15);
+          const isFault = isFdi || isEnergy;
+          const isRtl = u.action === 'RETURN_TO_HOME' || (u.role && u.role.includes('RTL'));
+          const droneCol = isLeader ? '#facc15' : (isFault ? '#ef4444' : '#38bdf8');
+
+          if (!trails[u.uav_id]) trails[u.uav_id] = [];
+          trails[u.uav_id].push({ x: pt.x, y: pt.y });
+          if (trails[u.uav_id].length > 35) trails[u.uav_id].shift();
+
+          // Flight Trail
+          if (showTrails && trails[u.uav_id].length > 1) {
+            ctx2D.beginPath(); ctx2D.moveTo(trails[u.uav_id][0].x, trails[u.uav_id][0].y);
+            for (let i = 1; i < trails[u.uav_id].length; i++) ctx2D.lineTo(trails[u.uav_id][i].x, trails[u.uav_id][i].y);
+            ctx2D.strokeStyle = isFault ? 'rgba(239, 68, 68, 0.45)' : (isLeader ? 'rgba(250, 204, 21, 0.4)' : 'rgba(56, 189, 248, 0.35)');
+            ctx2D.lineWidth = 2; ctx2D.setLineDash([4, 4]); ctx2D.stroke(); ctx2D.setLineDash([]);
+          }
+
+          // Dynamic Guardrail Reroute Vector & Bypass Target Visualization
+          if (u.reroute_active && u.reroute_target && u.reroute_target.length === 2) {
+            const bypassPt = worldToCanvas2D(u.reroute_target[0], u.reroute_target[1]);
+            ctx2D.save();
+            ctx2D.strokeStyle = '#06b6d4';
+            ctx2D.lineWidth = 2.8;
+            ctx2D.setLineDash([5, 3]);
+            ctx2D.shadowColor = '#22d3ee';
+            ctx2D.shadowBlur = 10;
+            ctx2D.beginPath();
+            ctx2D.moveTo(pt.x, pt.y);
+            ctx2D.lineTo(bypassPt.x, bypassPt.y);
+            ctx2D.stroke();
+
+            // Diamond target marker at dynamic bypass waypoint
+            ctx2D.fillStyle = '#22d3ee';
+            ctx2D.beginPath();
+            ctx2D.arc(bypassPt.x, bypassPt.y, 5, 0, 2 * Math.PI);
+            ctx2D.fill();
+            ctx2D.strokeStyle = '#ffffff';
+            ctx2D.lineWidth = 1.5;
+            ctx2D.stroke();
+
+            ctx2D.fillStyle = '#38bdf8';
+            ctx2D.font = 'bold 10px monospace';
+            ctx2D.fillText(`⚡ GUARDRAIL BYPASS [${u.uav_id}] (${u.reroute_target[0]}, ${u.reroute_target[1]})`, bypassPt.x + 8, bypassPt.y - 4);
+            ctx2D.restore();
+          }
+
+          // Return to Home (RTL) Trajectory Vector
+          if (showRTL) {
+            ctx2D.beginPath();
+            ctx2D.moveTo(pt.x, pt.y);
+            ctx2D.lineTo(basePt.x, basePt.y);
+            ctx2D.strokeStyle = isRtl ? '#eab308' : 'rgba(234, 179, 8, 0.35)';
+            ctx2D.lineWidth = isRtl ? 2.5 : 1.2;
+            ctx2D.setLineDash([6, 4]);
+            ctx2D.stroke();
+            ctx2D.setLineDash([]);
+
+            // Draw Return-To-Home Arrow Label along vector
+            const midX = (pt.x + basePt.x) / 2;
+            const midY = (pt.y + basePt.y) / 2;
+            ctx2D.fillStyle = '#eab308';
+            ctx2D.font = 'bold 9px sans-serif';
+            ctx2D.fillText(`⮌ RTL: ${u.uav_id}`, midX + 3, midY - 3);
+          }
+
+          if (isFault) {
+            ctx2D.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+            ctx2D.lineWidth = 4;
+            ctx2D.beginPath(); ctx2D.arc(pt.x, pt.y, 16, 0, 2 * Math.PI); ctx2D.stroke();
+          }
+
+          if (u.reroute_active) {
+            // Pulsing cyan guardrail halo
+            const guardR = 12 + ((Date.now() / 60) % 8);
+            ctx2D.strokeStyle = 'rgba(6, 182, 212, 0.9)';
+            ctx2D.lineWidth = 2;
+            ctx2D.beginPath(); ctx2D.arc(pt.x, pt.y, guardR, 0, 2 * Math.PI); ctx2D.stroke();
+          }
+
+          ctx2D.fillStyle = droneCol;
+          ctx2D.beginPath(); ctx2D.arc(pt.x, pt.y, 7, 0, 2 * Math.PI); ctx2D.fill();
+          ctx2D.strokeStyle = '#ffffff'; ctx2D.lineWidth = 1.5; ctx2D.stroke();
+
+          ctx2D.fillStyle = '#ffffff'; ctx2D.font = 'bold 11px sans-serif';
+          ctx2D.fillText(`${u.uav_id} (${u.position.z.toFixed(0)}m)`, pt.x + 10, pt.y - 2);
+        });
+      }
+
+      if (currentViewMode === '2D') requestAnimationFrame(render2DRadar);
+    }
+
+    // View Switcher: 3D Theater vs 2D Radar
+    function setViewMode(mode) {
+      currentViewMode = mode;
+      const btn3D = document.getElementById('btnView3D');
+      const btn2D = document.getElementById('btnView2D');
+      const threeBox = document.getElementById('threeContainer');
+      const canvasBox = document.getElementById('radarCanvas');
+      const camControls = document.getElementById('cameraControls3D');
+      const title = document.getElementById('arenaTitle');
+
+      const zoomControls = document.getElementById('radarZoomControls');
+
+      if (mode === '3D') {
+        btn3D.classList.add('active');
+        btn2D.classList.remove('active');
+        threeBox.style.display = 'block';
+        canvasBox.style.display = 'none';
+        camControls.style.display = 'flex';
+        if (zoomControls) zoomControls.style.display = 'none';
+        title.innerText = '3D Swarm Airspace & Geofence Arena';
+        onWindowResize3D();
+      } else {
+        btn2D.classList.add('active');
+        btn3D.classList.remove('active');
+        threeBox.style.display = 'none';
+        canvasBox.style.display = 'block';
+        camControls.style.display = 'none';
+        if (zoomControls) zoomControls.style.display = 'flex';
+        title.innerText = '2D Tactical Radar & Flight Corridors';
+        resizeCanvas2D();
+        render2DRadar();
+      }
+    }
+
+    function toggleLayer(layer) {
+      if (layer === 'routes') {
+        const v = document.getElementById('chkRoutes').checked;
+        routeGroup.visible = v;
+      } else if (layer === 'wps') {
+        const v = document.getElementById('chkWPs').checked;
+        waypointGroup.visible = v;
+      } else if (layer === 'rtl') {
+        const v = document.getElementById('chkRTL').checked;
+        rtlVectorGroup.visible = v;
+      }
+      if (currentViewMode === '2D') render2DRadar();
+    }
+
+    // Camera Presets
+    function setCamPreset(preset) {
+      if (!controls || !camera) return;
+      if (preset === 'orbit') {
+        camera.position.set(20, 85, 125);
+        controls.target.set(15, 10, -20);
+      } else if (preset === 'home') {
+        camera.position.set(0, 35, 45);
+        controls.target.set(0, 5, 0);
+      } else if (preset === 'top') {
+        camera.position.set(20, 160, -25);
+        controls.target.set(20, 0, -25);
+      } else if (preset === 'leader') {
+        const masterId = swarmData?.swarm_master?.uav_id || 'UAV-1';
+        const d = droneMeshes[masterId];
+        if (d) {
+          camera.position.set(d.position.x - 25, d.position.y + 20, d.position.z + 30);
+          controls.target.copy(d.position);
+        }
+      } else if (preset === 'fault') {
+        const faultUav = swarmData?.agents_telemetry?.find(a => (a.fdi_fault && a.fdi_fault !== 'No Failure') || a.battery_pct <= 15);
+        if (faultUav && droneMeshes[faultUav.uav_id]) {
+          const d = droneMeshes[faultUav.uav_id];
+          camera.position.set(d.position.x - 18, d.position.y + 12, d.position.z + 20);
+          controls.target.copy(d.position);
+        } else {
+          addLog('ℹ️ No faulted UAV currently active in swarm.', 'success');
+        }
+      }
+    }
+
+    function reset3DCamera() {
+      setCamPreset('orbit');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Real-Time Telemetry & WebSocket Connection
+    // ═══════════════════════════════════════════════════════════════════════════
+    function connectTelemetry() {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${window.location.host}/ws/telemetry`);
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.data) {
+            updateUI(msg.data, msg.is_running);
+          }
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        setTimeout(connectTelemetry, 1000);
+      };
+    }
+    connectTelemetry();
+
+    // Fallback polling every 800ms
+    setInterval(() => {
+      fetch('/api/telemetry')
+        .then(res => res.json())
+        .then(res => {
+          if (res.telemetry) updateUI(res.telemetry, res.is_running ?? (res.status === 'RUNNING'));
+        })
+        .catch(() => {});
+    }, 800);
+
+    // Update Dashboard UI & 3D Objects
+    function updateUI(data, isRunning) {
+      swarmData = data;
+      isMissionRunning = isRunning;
+
+      // Status Badges
+      const health = data.swarm_health_summary;
+      const statusBadge = document.getElementById('statusBadge');
+      
+      const isFaultUav = a => (a.fdi_fault && a.fdi_fault !== 'No Failure') || (a.energy_alert && a.energy_alert !== 'NORMAL') || (a.battery_pct <= 15);
+      const faultUav = data.agents_telemetry ? data.agents_telemetry.find(isFaultUav) : null;
+      const faultCount = data.agents_telemetry ? data.agents_telemetry.filter(isFaultUav).length : 0;
+
+      if (!isRunning) {
+        statusBadge.className = 'stat-badge badge-degraded';
+        statusBadge.innerHTML = '<i class="fa-solid fa-power-off"></i> Swarm: OFFLINE (Click Initiate Mission)';
+      } else if (faultCount > 0 || (health && health.system_status !== 'NOMINAL')) {
+        statusBadge.className = 'stat-badge badge-degraded';
+        statusBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Swarm: DEGRADED (${faultCount} Alert${faultCount > 1 ? 's' : ''})`;
+      } else {
+        statusBadge.className = 'stat-badge badge-nominal';
+        statusBadge.innerHTML = '<i class="fa-solid fa-shield-heart"></i> Swarm: NOMINAL';
+      }
+
+      document.getElementById('leaderBadge').innerHTML = `<i class="fa-solid fa-crown"></i> Master: ${data.swarm_master.uav_id}`;
+      document.getElementById('backendBadge').innerHTML = `<i class="fa-solid fa-server"></i> ${health ? health.simulation_backend : 'STANDALONE_SIM'}`;
+      document.getElementById('fleetCount').innerText = `${health ? health.online_agents : 0}/${health ? health.total_agents : 4} Online`;
+
+      // Master Progress Box
+      const mission = data.swarm_mission_progress;
+      const cappedTasks = Math.min(mission.total_tasks_completed, mission.total_tasks_assigned);
+      const cappedPct = Math.min(100.0, Math.max(0.0, mission.progress_pct));
+      document.getElementById('masterDetail').innerText = 
+        `Master: ${data.swarm_master.uav_id} | Online: ${health.online_agents}/${health.total_agents} | Tasks: ${cappedTasks}/${mission.total_tasks_assigned}`;
+      document.getElementById('progressText').innerText = `${cappedPct}% Complete`;
+      document.getElementById('progressBar').style.width = `${cappedPct}%`;
+
+      // Update AI Decision Pipeline Banner
+      const pipeFdi = document.getElementById('pipeFdi');
+      const pipeRisk = document.getElementById('pipeRisk');
+      const pipeCbf = document.getElementById('pipeCbf');
+      const pipeSwarm = document.getElementById('pipeSwarm');
+
+      if (faultUav) {
+        const faultDesc = (faultUav.fdi_fault && faultUav.fdi_fault !== 'No Failure')
+          ? faultUav.fdi_fault
+          : `Battery ${faultUav.energy_alert} (${faultUav.battery_pct}%)`;
+        if (pipeFdi) { pipeFdi.style.background = '#dc2626'; pipeFdi.style.color = '#ffffff'; pipeFdi.innerText = `2. FDI: 🔴 ${faultUav.uav_id} ${faultDesc}`; }
+        if (pipeRisk) { pipeRisk.style.background = '#d97706'; pipeRisk.style.color = '#ffffff'; pipeRisk.innerText = `3. Risk: ⚡ 0.85 (Critical Mitigation)`; }
+        if (pipeCbf) { pipeCbf.style.background = '#2563eb'; pipeCbf.style.color = '#ffffff'; pipeCbf.innerText = `4. CBF: 🛡️ ${faultUav.action}`; }
+        if (pipeSwarm) { pipeSwarm.style.background = '#7c3aed'; pipeSwarm.style.color = '#ffffff'; pipeSwarm.innerText = `5. Swarm: 🔄 Dynamic Handoff Active`; }
+      } else {
+        if (pipeFdi) { pipeFdi.style.background = '#1e293b'; pipeFdi.style.color = '#4ade80'; pipeFdi.innerText = `2. FDI Model: 🟢 Nominal`; }
+        if (pipeRisk) { pipeRisk.style.background = '#1e293b'; pipeRisk.style.color = '#94a3b8'; pipeRisk.innerText = `3. Risk: 0.00`; }
+        if (pipeCbf) { pipeCbf.style.background = '#1e293b'; pipeCbf.style.color = '#94a3b8'; pipeCbf.innerText = `4. CBF: Safe Barrier`; }
+        if (pipeSwarm) { pipeSwarm.style.background = '#1e293b'; pipeSwarm.style.color = '#94a3b8'; pipeSwarm.innerText = `5. Swarm: Synchronized`; }
+      }
+
+      // Render Telemetry Cards
+      const container = document.getElementById('uavCardsContainer');
+      container.innerHTML = '';
+      data.agents_telemetry.forEach(u => {
+        const isFdi = u.fdi_fault && u.fdi_fault !== 'No Failure';
+        const isBatt = (u.energy_alert && u.energy_alert !== 'NORMAL') || (u.battery_pct <= 15);
+        const isFault = isFdi || isBatt;
+        const isRtl = u.action === 'RETURN_TO_HOME' || (u.role && u.role.includes('RTL'));
+        const cardClass = isFault ? 'uav-card fault' : (u.is_leader ? 'uav-card leader' : 'uav-card');
+        const icon = u.is_leader ? '👑' : (isFault ? '⚠️' : '✈️');
+        const battColor = u.battery_pct > 30 ? '#22c55e' : (u.battery_pct > 15 ? '#facc15' : '#ef4444');
+
+        const card = document.createElement('div');
+        card.className = cardClass;
+        card.innerHTML = `
+          <div class="uav-header">
+            <span class="uav-title">${icon} ${u.uav_id}</span>
+            <div style="display: flex; gap: 5px; align-items: center;">
+              <span class="role-tag">${u.role}</span>
+              <button onclick="triggerRTL('${u.uav_id}')" title="Order this drone to Return to Home Base" style="background: #eab308; border: none; color: #000; font-weight: 700; font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; cursor: pointer;">
+                <i class="fa-solid fa-house"></i> RTL
+              </button>
+              <button onclick="sendCommand('clear ${u.uav_id}')" title="Reset this drone to nominal" style="background: #334155; border: none; color: #f8fafc; font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; cursor: pointer;">
+                <i class="fa-solid fa-wrench"></i> Reset
+              </button>
+            </div>
+          </div>
+          <div class="battery-track">
+            <div class="battery-fill" style="width: ${u.battery_pct}%; background: ${battColor};"></div>
+          </div>
+          <div class="telemetry-grid">
+            <span>Pos: <b>(${u.position.x}, ${u.position.y})</b></span>
+            <span>Alt: <b>${u.position.z}m</b></span>
+            <span>Batt: <b style="color: ${battColor};">${u.battery_pct}% (${u.energy_alert})</b></span>
+            <span>Tasks: <b>${Math.min(u.tasks_completed, u.total_tasks)}/${u.total_tasks}</b></span>
+            <span>FDI: <b style="color: ${isFdi ? '#ef4444' : '#22c55e'};">${u.fdi_fault}</b></span>
+            <span>Action: <b style="color: ${isRtl ? '#eab308' : (u.reroute_active ? '#06b6d4' : '#38bdf8')};">${u.reroute_active ? '⚡ NFZ REROUTE' : u.action}</b></span>
+            <span>Mesh Link: <b>${u.link_quality_pct}% (${u.comms_latency_ms}ms)</b></span>
+            <span>Geofence: <b style="color: ${u.reroute_active ? '#06b6d4' : (u.nfz_violation ? '#f97316' : '#22c55e')};">${u.reroute_active ? '⚡ DYNAMIC REROUTE' : (u.nfz_violation ? '⚠️ PROXIMITY' : '✓ CLEAR')}</b></span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      // Update 3D Scene Objects & RTL Inbound Corridors
+      update3DSwarmTelemetry(data.agents_telemetry);
+    }
+
+    // Update 3D Meshes & RTL Inbound Corridors
+    function update3DSwarmTelemetry(telemetryList) {
+      if (!threeInitialized || !telemetryList) return;
+
+      // Rebuild RTL vectors in 3D
+      rtlVectorGroup.clear();
+      const showRTL = document.getElementById('chkRTL')?.checked ?? true;
+
+      telemetryList.forEach(u => {
+        let drone = droneMeshes[u.uav_id];
+        const route = PLANNED_ROUTES[u.uav_id] || { hexColor: 0x38bdf8 };
+        if (!drone) {
+          drone = create3DDroneMesh(u.uav_id, route.hexColor);
+        }
+
+        // Coordinate conversion: Step80 X -> 3D X, Z -> 3D Y, Y -> 3D -Z
+        const targetX = u.position.x;
+        const targetY = u.position.z;
+        const targetZ = -u.position.y;
+
+        // Position interpolation
+        drone.position.set(targetX, targetY, targetZ);
+
+        // Ground shadow & drop line
+        if (drone.userData.shadow) {
+          drone.userData.shadow.position.set(targetX, 0.05, targetZ);
+        }
+
+        if (drone.userData.dropLine) {
+          const positions = drone.userData.dropLine.geometry.attributes.position.array;
+          positions[0] = 0; positions[1] = 0; positions[2] = 0;
+          positions[3] = 0; positions[4] = -targetY; positions[5] = 0;
+          drone.userData.dropLine.geometry.attributes.position.needsUpdate = true;
+          drone.userData.dropLine.computeLineDistances();
+        }
+
+        // Fault beacon & colors
+        const isFdi = u.fdi_fault && u.fdi_fault !== 'No Failure';
+        const isBatt = (u.energy_alert && u.energy_alert !== 'NORMAL') || (u.battery_pct <= 15);
+        const isFault = isFdi || isBatt;
+        const isRtl = u.action === 'RETURN_TO_HOME' || (u.role && u.role.includes('RTL'));
+
+        if (drone.userData.beacon) {
+          if (isFault) {
+            drone.userData.beacon.material.color.setHex(0xef4444);
+            drone.userData.beacon.material.emissive.setHex(0xef4444);
+            drone.userData.beacon.material.emissiveIntensity = 2.0;
+          } else if (isRtl) {
+            drone.userData.beacon.material.color.setHex(0xeab308);
+            drone.userData.beacon.material.emissive.setHex(0xeab308);
+            drone.userData.beacon.material.emissiveIntensity = 1.8;
+          } else if (u.is_leader) {
+            drone.userData.beacon.material.color.setHex(0xfacc15);
+            drone.userData.beacon.material.emissive.setHex(0xfacc15);
+            drone.userData.beacon.material.emissiveIntensity = 1.2;
+          } else {
+            drone.userData.beacon.material.color.setHex(route.hexColor);
+            drone.userData.beacon.material.emissive.setHex(route.hexColor);
+            drone.userData.beacon.material.emissiveIntensity = 0.6;
+          }
+        }
+
+        // Draw 3D Inbound RTL Return Trajectory Vector leading directly to Home Helipad Slot
+        if (showRTL) {
+          const slot = RTL_SLOTS[u.uav_id] || { x: 0, y: 0.35, z: 0 };
+          const rtlPts = [
+            new THREE.Vector3(targetX, targetY, targetZ),
+            new THREE.Vector3(slot.x, slot.y, slot.z)
+          ];
+          const rtlGeo = new THREE.BufferGeometry().setFromPoints(rtlPts);
+          const rtlMat = new THREE.LineDashedMaterial({
+            color: isRtl ? 0xfacc15 : 0xeab308,
+            dashSize: 2.0,
+            gapSize: 1.2,
+            transparent: true,
+            opacity: isRtl ? 0.95 : 0.45
+          });
+          const rtlLine = new THREE.Line(rtlGeo, rtlMat);
+          rtlLine.computeLineDistances();
+          rtlVectorGroup.add(rtlLine);
+        }
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Action Handlers & Mission Control API
+    // ═══════════════════════════════════════════════════════════════════════════
+    function startMission() {
+      const fleetSize = document.getElementById('fleetSize').value;
+      const faultScenario = document.getElementById('faultScenario').value;
+      addLog(`Initiating autonomous swarm mission (Fleet: ${fleetSize}, Scenario: ${faultScenario})...`, 'success');
+
+      fetch('/api/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fleet_size: fleetSize, fault_scenario: faultScenario, ticks: 0 })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success) {
+          addLog(`🚀 Mission active! Engine initialized with ${fleetSize} UAV agents.`, 'success');
+        } else {
+          addLog(`❌ Launch Error: ${res.error}`, 'fault');
+        }
+      });
+    }
+
+    function stopMission() {
+      addLog('Terminating mission and issuing emergency failsafe landing...', 'fault');
+      fetch('/api/stop', { method: 'POST' });
+    }
+
+    function sendCommand(cmd) {
+      fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.warning) {
+          addLog(`⚠️ ${res.warning}`, 'fault');
+        } else {
+          addLog(`⚡ Command sent to Swarm: "${cmd}"`, 'success');
+        }
+      })
+      .catch(err => {
+        addLog(`❌ Command failed: ${err}`, 'fault');
+      });
+    }
+
+    function triggerRTL(target) {
+      if (target === 'all') {
+        sendCommand('rtl');
+        addLog('🏠 SWARM RTL ACTIVATED: All drones vectoring back to Home Base (0,0)!', 'success');
+      } else {
+        sendCommand(`rtl ${target}`);
+        addLog(`🏠 RTL ACTIVATED for ${target}: Inbound recovery to Home Base (0,0)!`, 'success');
+      }
+    }
+
+    function triggerCustomFault() {
+      const target = document.getElementById('faultTargetUav').value;
+      const fType = document.getElementById('faultTypeSelect').value;
+
+      if (fType.startsWith('batt')) {
+        const parts = fType.split(' ');
+        const battVal = parts[1];
+        sendCommand(`batt ${target} ${battVal}`);
+        addLog(`🚨 INJECTED BATTERY DRAIN: Setting ${target} battery to ${battVal}%`, 'fault');
+      } else {
+        sendCommand(`fault ${target} ${fType}`);
+        addLog(`🚨 INJECTED SENSOR FAULT: ${target} ${fType} Failure`, 'fault');
+      }
+    }
+
+    function clearTargetUav() {
+      const target = document.getElementById('faultTargetUav').value;
+      sendCommand(`clear ${target}`);
+      addLog(`🔧 Restoring ${target} to 100% nominal state...`, 'success');
+    }
+
+    function addLog(txt, cls='') {
+      const log = document.getElementById('eventLog');
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = `log-line ${cls}`;
+      div.innerText = `[${time}] ${txt}`;
+      log.prepend(div);
+    }
+
+    function openPlotsModal() {
+      addLog('Generating scientific evaluation plots from telemetry log...', 'success');
+      fetch('/api/generate_plots', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => {
+          const t = Date.now();
+          document.getElementById('imgTraj').src = `/plots/swarm_3d_flight_trajectories.png?t=${t}`;
+          document.getElementById('imgFdi').src = `/plots/swarm_fdi_safety_timeline.png?t=${t}`;
+          document.getElementById('imgMesh').src = `/plots/swarm_mesh_performance.png?t=${t}`;
+          document.getElementById('plotsModal').classList.add('active');
+        });
+    }
+
+    function closePlotsModal() {
+      document.getElementById('plotsModal').classList.remove('active');
+    }
+
+    // Initialize 3D scene on window load
+    window.addEventListener('load', () => {
+      initThreeScene();
+    });
+  </script>
+</body>
+</html>
